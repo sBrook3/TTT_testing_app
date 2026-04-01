@@ -126,59 +126,116 @@ with tab2:
         # Full Power plot
         fig_power = px.line(
             df,
-            x="distance",
+            x="timestamp",
             y="power",
             color="rider_id",
-            title="Power vs Distance"
+            title="Power vs Time"
         )
         st.plotly_chart(fig_power, use_container_width=True)
 
         # Full Speed plot
         fig_speed = px.line(
             df,
-            x="distance",
+            x="timestamp",
             y="speed",
             color="rider_id",
-            title="Speed vs Distance"
+            title="Speed vs Time"
         )
         st.plotly_chart(fig_speed, use_container_width=True)
         
-        summary = df[["power", "speed", "rider"]].groupby("rider").mean().round(0)
-        time = df.groupby("rider")["timestamp"].max()-df.groupby("rider")["timestamp"].min()
-        time_secs = time.dt.total_seconds()
-        time_secs = time_secs.apply(lambda x: f"{int(x//60)}m {int(x%60)}s")
-        summary = pd.concat([summary, time_secs], axis=1)
-        summary=summary.reset_index().rename(columns={"rider":""})
-        summary = summary.rename(columns={
-            "power":"Average Power (w)", 
-            "speed":"Average Speed (m/s)", 
-            "timestamp":"Total Time (s)"})
-        
-        st.dataframe(summary, hide_index=True)
-
-
-        # ------------------------------
-        # Slider for Finish Distance (replaces click)
-        # ------------------------------
-        timestamps = sorted(df["timestamp"].tolist())
-
-        finish_time = st.select_slider(
-            "Select Finish Time",
-            options=timestamps,
-            value=timestamps[-1],
-            key="finish_time_slider"
+        # Full Cadence plot
+        fig_cadence = px.line(
+            df,
+            x="timestamp",
+            y="cadence",
+            color="rider_id",
+            title="cadence vs Time"
         )
-        st.session_state.selected_finish_time = finish_time
-        st.write(finish_time)
-
-
-        # Calculate start distance for 2k effort
+        st.plotly_chart(fig_cadence, use_container_width=True)
+        
+        rider_1_df = combined_long[combined_long['rider'] == 'rider1'].copy()
+        rider_1_cad = rider_1_df['cadence']
+        future_above_20 = rider_1_cad[::-1].gt(20).cummax()[::-1]
+        mask = (rider_1_cad == 0) & (~future_above_20)
+        finish_time = rider_1_df.loc[mask, 'timestamp'].iloc[0]
+                       
+        combined_long_finished = combined_long[combined_long['timestamp'] <= finish_time]
+        
+        finish_dist = combined_long_finished[combined_long_finished['rider'] == 'rider1']['distance'].tail(1).iloc[0]
+        start_dist = finish_dist - 2000
+        nearest_idx = (rider_1_df['distance'] - start_dist).abs().idxmin()
+        start_time = rider_1_df.loc[nearest_idx, 'timestamp']
+        
+        combined_long_trimmed = combined_long_finished[combined_long_finished['timestamp'] >= start_time]
+        
+        st.write("Finish time: ", finish_time,
+                 "Finish distance: ", finish_dist,
+                 "Start distance: ", start_dist,
+                 "Start time: ", start_time)
+        
+        # cut Power plot
+        fig_power_cut = px.line(
+            combined_long_trimmed,
+            x="timestamp",
+            y="power",
+            color="rider_id",
+            title="Power vs Time"
+        )
+        st.plotly_chart(fig_power_cut, use_container_width=True)
 
     
 
 # ------------------------------
-# TAB 3: Calculate Drag (placeholder)
+# TAB 3: Calculate Drag
 # ------------------------------
 with tab3:
     st.header("Drag Calculation")
-    st.info("Tab not implemented yet.")
+    
+    rider_drags = (combined_long_trimmed
+                   .groupby('rider', as_index=False)
+                   .agg({
+                       'speed':'mean',
+                       'power':'mean'})
+                   )
+    rider_drags = (rider_drags
+                   .assign(
+                       k=lambda d: d['speed']**3 / d['power'],
+                       power_for_50=lambda d: 125000 / d['k']
+                       )
+                   )
+    cols=rider_drags.columns.drop('rider')
+    rider_drags.loc["Average", cols] = rider_drags[cols].mean()
+    rider_drags.loc["Average", "rider"] = "Average"
+    
+        
+    col_map = {
+        'speed': ('Average Speed (km/h)', '{:.1f}'),
+        'power': ('Average Power (W)', '{:.0f}'),
+        'power_for_50': (f'Power required for 50 km/h (run {run_no})', '{:.0f}')
+    }
+    
+    rename_dict = {k: v[0] for k, v in col_map.items()}
+    format_dict = {v[0]: v[1] for v in col_map.values()}
+        
+    rider_drags_styled = (rider_drags
+                          .drop(columns=['k'])
+                          .rename(columns=rename_dict)
+                          .style
+                          .format(format_dict)
+                          .apply(
+                              lambda x: ['background-color: lightgrey'] * len(x)
+                              if x.name == 'Average' else [''] * len(x),
+                              axis=1
+                              )
+                          )
+    
+    st.dataframe(rider_drags_styled, hide_index=True, use_container_width=False)
+    
+    #set 250 splits and give drag per split
+    #add distance to first page next to run number and build into start_dist calculator to allow shorter runs.
+    
+    
+    
+    
+    
+    
