@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from process_race_ttt import read_fit_file, process_race_ttt
+import math
+import numpy as np
 
 st.set_page_config(layout="wide", page_title="TTT Analysis App")
 
@@ -59,7 +61,11 @@ def process_combined_files(file_dict):
 with tab1:
     st.header("Upload Rider FIT files")
 
-    run_no = st.text_input("Run number")
+    col1, col2 = st.columns(2)
+    with col1:
+        run_no = st.text_input("Run number")
+    with col2:
+        dist_no = st.text_input("Run distance (m)")
 
     uploaders = {}
     for i in range(1, 9):
@@ -162,16 +168,11 @@ with tab2:
         combined_long_finished = combined_long[combined_long['timestamp'] <= finish_time]
         
         finish_dist = combined_long_finished[combined_long_finished['rider'] == 'rider1']['distance'].tail(1).iloc[0]
-        start_dist = finish_dist - 2000
+        start_dist = finish_dist - int(dist_no)
         nearest_idx = (rider_1_df['distance'] - start_dist).abs().idxmin()
         start_time = rider_1_df.loc[nearest_idx, 'timestamp']
         
         combined_long_trimmed = combined_long_finished[combined_long_finished['timestamp'] >= start_time]
-        
-        st.write("Finish time: ", finish_time,
-                 "Finish distance: ", finish_dist,
-                 "Start distance: ", start_dist,
-                 "Start time: ", start_time)
         
         # cut Power plot
         fig_power_cut = px.line(
@@ -182,14 +183,34 @@ with tab2:
             title="Power vs Time"
         )
         st.plotly_chart(fig_power_cut, use_container_width=True)
-
-    
+        
+        segment_count = math.ceil(int(dist_no) / 250)
+        remainder = int(dist_no) % 250
+        combined_long_trimmed['distance_adj'] = (
+            combined_long_trimmed['distance']
+            - combined_long_trimmed.groupby('rider')['distance'].transform('first')
+        )
+        if remainder == 0:
+            bins = np.arange(0, int(dist_no) + 250, 250)
+        else:
+            bins = np.concantenate((
+                [0, remainder],
+                np.arange(remainder + 250, int(dist_no) + 250, 250)))
+        combined_long_trimmed['segment_no'] = pd.cut(
+            combined_long_trimmed['distance_adj'],
+            bins=bins,
+            labels=False,
+            include_lowest=True
+            ) + 1
+            
 
 # ------------------------------
 # TAB 3: Calculate Drag
 # ------------------------------
 with tab3:
-    st.header("Drag Calculation")
+    st.header("Drag Calculations")
+    
+    st.write(f'Average power required for 50 km/h for the full {dist_no}m of run {run_no}')
     
     rider_drags = (combined_long_trimmed
                    .groupby('rider', as_index=False)
@@ -203,6 +224,7 @@ with tab3:
                        power_for_50=lambda d: 125000 / d['k']
                        )
                    )
+
     cols=rider_drags.columns.drop('rider')
     rider_drags.loc["Average", cols] = rider_drags[cols].mean()
     rider_drags.loc["Average", "rider"] = "Average"
@@ -211,7 +233,7 @@ with tab3:
     col_map = {
         'speed': ('Average Speed (km/h)', '{:.1f}'),
         'power': ('Average Power (W)', '{:.0f}'),
-        'power_for_50': (f'Power required for 50 km/h (run {run_no})', '{:.0f}')
+        'power_for_50': ('Power (w)', '{:.0f}')
     }
     
     rename_dict = {k: v[0] for k, v in col_map.items()}
@@ -230,6 +252,38 @@ with tab3:
                           )
     
     st.dataframe(rider_drags_styled, hide_index=True, use_container_width=False)
+    
+    rider_drags_segments = (combined_long_trimmed
+                   .groupby(['rider', 'segment_no'], as_index=False)
+                   .agg({
+                       'speed':'mean',
+                       'power':'mean'})
+                   )
+    rider_drags_segments = (rider_drags_segments
+                   .assign(
+                       k=lambda d: d['speed']**3 / d['power'],
+                       power_for_50=lambda d: 125000 / d['k']
+                       )
+                   )
+    rider_drags_segments_wide = (rider_drags_segments
+                                 .pivot(index = 'segment_no', columns='rider', values='power_for_50')
+                                 .reset_index()
+                                 )
+    
+    col_map2 = {
+        'segment_no': ('Segment', '{:.0f}')
+    }
+    rider_cols = [c for c in rider_drags_segments_wide.columns if c != 'segment_no']
+    rename_dict2 = {k: v[0] for k, v in col_map2.items()}
+    format_dict2 = {v[0]: v[1] for v in col_map2.values()}
+    format_dict2.update({col: '{:.0f}' for col in rider_cols})
+    rider_drags_segments_wide_styled = (rider_drags_segments_wide
+                          .rename(columns=rename_dict2)
+                          .style
+                          .format(format_dict2)
+                          )
+    st.write(f'Powers required for 50km/h in each 250m segment in run {run_no}:')
+    st.dataframe(rider_drags_segments_wide_styled, hide_index=True, use_container_width=False)
     
     #set 250 splits and give drag per split
     #add distance to first page next to run number and build into start_dist calculator to allow shorter runs.
