@@ -193,7 +193,7 @@ with tab2:
         if remainder == 0:
             bins = np.arange(0, int(dist_no) + 250, 250)
         else:
-            bins = np.concantenate((
+            bins = np.concatenate((
                 [0, remainder],
                 np.arange(remainder + 250, int(dist_no) + 250, 250)))
         combined_long_trimmed['segment_no'] = pd.cut(
