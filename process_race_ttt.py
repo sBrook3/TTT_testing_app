@@ -78,9 +78,6 @@ def process_race_ttt(fit_data, rider_id):
     if 'power' in new_race.columns and (new_race['power'] > 2500).any():
         warnings_vec.append("WARNING: possible corrupted file, sprint data appears valid")
     
-    if 'power' in new_race.columns:
-        new_race.loc[new_race['power'] > 2500, 'power'] = np.nan
-    
     if 'heart_rate' not in new_race.columns:
         new_race['heart_rate'] = np.nan 
     
