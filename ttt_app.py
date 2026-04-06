@@ -4,6 +4,7 @@ import plotly.express as px
 from process_race_ttt import read_fit_file, process_race_ttt
 import math
 import numpy as np
+import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="TTT Analysis App")
 
@@ -128,6 +129,8 @@ with tab2:
     else:
         st.header("Full Files Plots")
         df = df.copy()
+        
+
 
         # Full Power plot
         fig_power = px.line(
@@ -155,14 +158,14 @@ with tab2:
             x="timestamp",
             y="cadence",
             color="rider_id",
-            title="cadence vs Time"
+            title="Cadence vs Time"
         )
         st.plotly_chart(fig_cadence, use_container_width=True)
         
         rider_1_df = combined_long[combined_long['rider'] == 'rider1'].copy()
         rider_1_cad = rider_1_df['cadence']
         future_above_20 = rider_1_cad[::-1].gt(20).cummax()[::-1]
-        mask = (rider_1_cad == 0) & (~future_above_20)
+        mask = (rider_1_cad <=10) & (~future_above_20)
         finish_time = rider_1_df.loc[mask, 'timestamp'].iloc[0]
                        
         combined_long_finished = combined_long[combined_long['timestamp'] <= finish_time]
@@ -173,16 +176,6 @@ with tab2:
         start_time = rider_1_df.loc[nearest_idx, 'timestamp']
         
         combined_long_trimmed = combined_long_finished[combined_long_finished['timestamp'] >= start_time]
-        
-        # cut Power plot
-        fig_power_cut = px.line(
-            combined_long_trimmed,
-            x="timestamp",
-            y="power",
-            color="rider_id",
-            title="Power vs Time"
-        )
-        st.plotly_chart(fig_power_cut, use_container_width=True)
         
         segment_count = math.ceil(int(dist_no) / 250)
         remainder = int(dist_no) % 250
@@ -202,6 +195,45 @@ with tab2:
             labels=False,
             include_lowest=True
             ) + 1
+        
+        # cut Power plot        
+        fig_power_cut = px.line(
+            combined_long_trimmed,
+            x="distance_adj",
+            y="power",
+            color="rider_id",
+            title=f"Power vs Distance {dist_no}m segment"
+        )
+        fig_power_cut.update_xaxes(
+            title="Distance (m)")
+        fig_power_cut.update_yaxes(
+            title="Power (w)")
+        for b in bins:
+            fig_power_cut.add_vline(
+                x=b,
+                line_dash="dash",
+                line_width=1
+                )
+        st.plotly_chart(fig_power_cut, use_container_width=True)
+        # cut Speed plot        
+        fig_speed_cut = px.line(
+            combined_long_trimmed,
+            x="distance_adj",
+            y="speed",
+            color="rider_id",
+            title=f"Speed vs Distance {dist_no}m segment"
+        )
+        fig_speed_cut.update_xaxes(
+            title="Distance (m)")
+        fig_speed_cut.update_yaxes(
+            title="Speed (km/h)")
+        for b in bins:
+            fig_speed_cut.add_vline(
+                x=b,
+                line_dash="dash",
+                line_width=1
+                )
+        st.plotly_chart(fig_speed_cut, use_container_width=True)
             
 
 # ------------------------------
@@ -283,7 +315,9 @@ with tab3:
                           .format(format_dict2)
                           )
     st.write(f'Powers required for 50km/h in each 250m segment in run {run_no}:')
+        
     st.dataframe(rider_drags_segments_wide_styled, hide_index=True, use_container_width=False)
+    
     
     #set 250 splits and give drag per split
     #add distance to first page next to run number and build into start_dist calculator to allow shorter runs.
